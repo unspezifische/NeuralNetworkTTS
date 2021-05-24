@@ -13,19 +13,47 @@
 ##  2. A tensorflow training module that takes
 ##
 ## TODO:
+##  1. Use wave library to create wave files on the fly (in place of audio buffers like JS)
 ##  1. determine input values for pink-trombone module (obfuscate to seperate module, or include for fewer dependencies?)
-##  2. setup training function for tensorflow that accepts 
+##  2. setup training function for tensorflow that accepts a string or txt file and an mp3 file of the text file being spoken
+##  3. create a generateSpeech() function that takes a string argument and returns pyAudio
+##
+##  Is numpy gonna be necessary at some point?
 ##
 ## Algorithm:
 ##  1.
 
-from math import *  # hell yeah we need self!
+## Used to generate audio
+from math import *  # hell yeah we need this!
 import random       # provides access to random.random()
 import noise        # provides simplex noise functions
-import pyAudio      # allows playback of sounds created
 
+## Audio packaging & output
+import pyAudio      # allows playback of sounds created
+import wave         # used to package generated audio (essentially used as buffers)
+import time         # needed for any sleep() calls
+
+## Used to control the rest of the program
 import tensorflow as tf     ## import the tensorflow modules
 
+##******************************** pyAudio Setup *******************************
+p = pyaudio.pyAudio()   ## Create an instance of pyAudio for use later
+wf = wave.open("output.wav", "w")   ## open a wavefile called "output" in write mode
+
+# define callback (pulled directly from pyAudio documentation)
+def callback(in_data, frame_count, time_info, status):
+    return (in_data, pyaudio.paContinue)
+
+# TODO: move these to the appropriate place for them to be called
+# # start the stream
+# stream.start_stream()
+#
+# # wait for stream to finish (5)
+# while stream.is_active():
+#     time.sleep(0.1)
+
+
+##**************************** Math Stuff for later ****************************
 ## Used to get the lowest of 3 given values
 def clamp(number, minVal, maxVal):
     if (number < minVal):
@@ -49,9 +77,9 @@ def moveTowards(current, target, amountUp, amountDown):
     else:
         return max(current-amountDown, target)
 
-## gaussian
+## gaussian curve function
 def gaussian():
-    s = 0
+    s = 0   ## seed?
     c = 0   ## for loop itertor
     for c in range(16): ## loop 16 times (0-16)
         s += random.random()    ## add a float between 0.0 & 1.0 to s
@@ -59,89 +87,113 @@ def gaussian():
     return (s-8)/4  ## idk why it does this. i'm just the scribe
 
 
-# define callback
-def callback(in_data, frame_count, time_info, status):
-    data = wf.readframes(frame_count)   ## not this
-    return (data, pyaudio.paContinue)
-
-
-sampleRate = 0      ## 1 second of sound. this gets used in startSound()
+sampleRate = 1      ## 1 second of sound. this gets used in startSound() (was originally 0, shouldn't it be 1?)
 time = 0            ## makes sense
-temp = {a:0, b:0}   ## not sure what self dict is for
+temp = {a:0, b:0}   ## not sure what this dict is for
 alwaysVoice = False ## probably unnecessary
 autoWobble = False  ## probably unnecessary
-noiseFreq = 500
-noiseQ = 0.7
+noiseFreq = 500     ## starting point for sound generation?
+noiseQ = 0.7        ## Q is used to determine the frequency range of the bandpass filter
 
 
-## TODO- rewrite this to use pyAudio (using "callback mode")
+
 class AudioSystem:
     ## blockLength Can be set to 512 for more responsiveness but
     ## potential crackling if CPU can't fill the buffer fast enough (latency)
-    blockLength = 2048      ## this will be the frame frameCount parameter of callback
-    blockTime = 1
+    blockLength = 2048      ## use for frameCount parameter of callback function
+    blockTime = 1           ## use for timeInfo parameter of callback function
     started = False
     soundOn = False
 
+    WIDTH = 2
+    CHANNELS = 2
+    RATE = 44100
+
+    ## Open pyAudio datastream using callback
+    stream = p.open(format=p.get_format_from_width(WIDTH),
+                    channels=CHANNELS,
+                    rate=RATE,
+                    input=True,
+                    output=True,
+                    stream_callback=callback)
+
     def __init__():
-        sampleRate = self.audioContext.sampleRate       ## set sample rate to something useful
-        self.blockTime = self.blockLength/sampleRate    ## set blockTime to something useful
+        # sampleRate = wf.getsamplerate()       ## use .getsamplerate() from the wave library to get samplerate of wf (wave file)
+        self.blockTime = self.blockLength/RATE    ## set blockTime to something useful
 
-    ## TODO rewrite this to use whatever library
+    ## TODO rewrite this to use pyAudio
     def startSound():
-        this.scriptProcessor.onaudioprocess = AudioSystem.doScriptProcessor     # old line
+        ## scriptProcessor was a audioContext.createScriptProcessor object, that was later connected to audioContext.destination
+        this.scriptProcessor.onaudioprocess = AudioSystem.doScriptProcessor    ##TODO: link doScriptProcessor to something more useful
 
-        whiteNoise = this.createWhiteNoiseNode(2 * sampleRate) ## 2 seconds of noise
+        whiteNoise = this.createWhiteNoiseNode(2 * sampleRate)  ## becomes a 2 second wavefile of noise
 
+        ## Create a bandpass filter for "aspirate" (only allow certain frequencies through)
+        ## TODO: change to pyAudio (or SciPy?) Is this even necessary?
         aspirateFilter = this.audioContext.createBiquadFilter()
         aspirateFilter.type = "bandpass"
         aspirateFilter.frequency.value = 500
         aspirateFilter.Q.value = 0.5
-        whiteNoise.connect(aspirateFilter)
-        aspirateFilter.connect(this.scriptProcessor)
+        whiteNoise.connect(aspirateFilter)          ## connects variable to whitenoise buffer object (JS)
+        aspirateFilter.connect(this.scriptProcessor)        ## connects variable to scriptProcessor buffer object (JS)
 
+        ## Another bandpass filter for "fricative"
         fricativeFilter = this.audioContext.createBiquadFilter()
         fricativeFilter.type = "bandpass"
         fricativeFilter.frequency.value = 1000
         fricativeFilter.Q.value = 0.5
-        whiteNoise.connect(fricativeFilter)
+        whiteNoise.connect(fricativeFilter)     ## connects variable to whitenoise buffer object (JS)
         fricativeFilter.connect(this.scriptProcessor)
 
-        whiteNoise.start(0)
+        whiteNoise.start(0)     ## This is an old JS command. TODO: replace or remove?
 
-    ## TODO fix this to use python library (create a buffer of whatever length and fill it with white noise)
+
     def createWhiteNoiseNode(frameCount):
-        myArrayBuffer = this.audioContext.createBuffer(1, frameCount, sampleRate)
+        # myArrayBuffer = this.audioContext.createBuffer(1, frameCount, sampleRate)
+        #
+        # nowBuffering = myArrayBuffer.getChannelData(0)  ## Get the audio buffer object
+        noiseWF = wave.open("noise.wav", "w")   ## create a wave obejct for noise file
+        nchannels = 1       ## wav params
+        sampwidth = 2
+        nframes = len(audio)
+        comptype = "NONE"
+        compname = "not compressed"
+        noiseWF.setparams((nchannels, sampwidth, sample_rate, nframes, comptype, compname))
 
-        nowBuffering = myArrayBuffer.getChannelData(0)  ## Get the audio buffer object
         i = 0
         for i in range(frameCount):
-            nowBuffering[i] = random()## gaussian()
+            noiseWF.writeframes(struct.pack('h', int( random() * 32767.0 )))    ## random returns value between [0.0, 1.0)
             i += 1
-        source = this.audioContext.createBufferSource()
-        source.buffer = myArrayBuffer
-        source.loop = true
 
-        return source
+        noiseWF.close()
 
-    ## This function might not be necessary after rework
+        # for i in range(frameCount):
+        #     nowBuffering[i] = random() ## gaussian()
+
+        # source = this.audioContext.createBufferSource()
+        # source.buffer = myArrayBuffer
+        # source.loop = true
+
+        return
+
+    ## This function is when the sound is actually created based on the "mouth shape"
     def doScriptProcessor(event):
-        ## Get input arrays from AudioBuffer
-        inputArray1 = event.inputBuffer.getChannelData(0)
-        vainputArray2 = event.inputBuffer.getChannelData(1)
-        outArray = event.outputBuffer.getChannelData(0)
+        ## Get input arrays from AudioBuffer (a JS function)
+        inputArray1 = event.inputBuffer.getChannelData(0)   ## 2 channels of
+        inputArray2 = event.inputBuffer.getChannelData(1)   ##
+        outArray = event.outputBuffer.getChannelData(0)     ## length of output buffer (JS) TODO: size of output wave file?
         j = 0
         N = len(outArray)  ## This variable gets used within the loop
         for j in range(N):
-            lambda1 = j/N
-            lambda2 = (j+0.5)/N
-            glottalOutput = Glottis.runStep(lambda1, inputArray1[j])
+            tempVal1 = j/N
+            tempVal2 = (j+0.5)/N    ## slightly offset from other value
+            glottalOutput = Glottis.runStep(tempVal1, inputArray1[j])
 
             vocalOutput = 0
             ## Tract runs at twice the sample rate
-            Tract.runStep(glottalOutput, inputArray2[j], lambda1)
+            Tract.runStep(glottalOutput, inputArray2[j], tempVal1)
             vocalOutput += Tract.lipOutput + Tract.noseOutput
-            Tract.runStep(glottalOutput, inputArray2[j], lambda2)
+            Tract.runStep(glottalOutput, inputArray2[j], tempVal2)
             vocalOutput += Tract.lipOutput + Tract.noseOutput
             outArray[j] = vocalOutput * 0.125
 
@@ -199,13 +251,13 @@ class Glottis:
         Glottis.UITenseness = 1-cos(t * pi * 0.5)
         Glottis.loudness = pow(Glottis.UITenseness, 0.25)
 
-    def runStep(Lambda, noiseSource):
+    def runStep(tempVal, noiseSource):
         timeStep = 1.0 / sampleRate
         self.timeInWaveform += timeStep
         self.totalTime += timeStep
         if (self.timeInWaveform > self.waveformLength):
           self.timeInWaveform -= self.waveformLength
-          self.setupWaveform(Lambda)
+          self.setupWaveform(tempVal)
         out = self.normalizedLFWaveform(self.timeInWaveform / self.waveformLength)
         aspiration = self.intensity*(1-sqrt(self.UITenseness)) * self.getNoiseModulator() * noiseSource
         aspiration *= 0.2 + 0.02 * noise.simplex1(self.totalTime * 1.99)
@@ -244,9 +296,9 @@ class Glottis:
         self.intensity = clamp(self.intensity, 0, 1)
 
 
-    def setupWaveform(Lambda):
-        self.frequency = self.oldFrequency * (1 - Lambda) + self.newFrequency * Lambda
-        tenseness = self.oldTenseness * (1 - Lambda) + self.newTenseness * Lambda
+    def setupWaveform(tempVal):
+        self.frequency = self.oldFrequency * (1 - tempVal) + self.newFrequency * tempVal
+        tenseness = self.oldTenseness * (1 - tempVal) + self.newTenseness * tempVal
         self.Rd = 3*(1 - tenseness)
         self.waveformLength = 1.0/self.frequency
 
@@ -457,7 +509,7 @@ class Tract:
 
 
     ## Had to change the 'lambda' parameter to Lambda because 'lambda' is a reserved word in Python
-    def runStep(glottalOutput, turbulenceNoise, Lambda):
+    def runStep(glottalOutput, turbulenceNoise, tempVal):
         updateAmplitudes = (random.random() < 0.1)
 
         ## mouth
@@ -470,7 +522,7 @@ class Tract:
 
         i = 1
         for i in range(this.n):
-          r = this.reflection[i] * (1-Lambda) + this.newReflection[i]*Lambda
+          r = this.reflection[i] * (1-tempVal) + this.newReflection[i]*tempVal
           w = r * (this.R[i-1] + this.L[i])
           this.junctionOutputR[i] = this.R[i-1] - w
           this.junctionOutputL[i] = this.L[i] + w
@@ -478,11 +530,11 @@ class Tract:
 
         ## now at junction with nose
         i = this.noseStart
-        r = this.newReflectionLeft * (1-Lambda) + this.reflectionLeft*Lambda
+        r = this.newReflectionLeft * (1-tempVal) + this.reflectionLeft*tempVal
         this.junctionOutputL[i] = r * this.R[i-1] + (1+r) * (this.noseL[0] + this.L[i])
-        r = this.newReflectionRight * (1-Lambda) + this.reflectionRight * Lambda
+        r = this.newReflectionRight * (1-tempVal) + this.reflectionRight * tempVal
         this.junctionOutputR[i] = r * this.L[i] + (1+r) * (this.R[i-1] + this.noseL[0])
-        r = this.newReflectionNose * (1-Lambda) + this.reflectionNose * Lambda
+        r = this.newReflectionNose * (1-tempVal) + this.reflectionNose * tempVal
         this.noseJunctionOutputR[0] = r * this.noseL[0] + (1+r) * (this.L[i] + this.R[i-1])
 
         i = 0
